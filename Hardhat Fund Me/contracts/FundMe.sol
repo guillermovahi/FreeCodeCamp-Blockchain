@@ -4,7 +4,7 @@ pragma solidity ^0.8.8;
 import "./PriceConverter.sol";
 
 //! errores personalizados
-error NotOwner();
+error FundMe__NotOwner();
 
 contract FundMe {
 	using PriceConverter for uint256;
@@ -12,38 +12,40 @@ contract FundMe {
 	//* usando constant ahorra gas frente a non-constant
 	uint256 public constant MINIMUM_USD = 50 * 1e18;
 
-	address[] public funders;
-	mapping(address => uint256) public addressToAmountFunded;
+	address[] private s_funders;
+	mapping(address => uint256) private s_addressToAmountFunded;
 
-	//
-	address public immutable i_owner;
+	address private immutable i_owner;
 
-	constructor() {
+	AggregatorV3Interface private s_priceFeed;
+
+	constructor(address priceFeedAddres) {
 		i_owner = msg.sender;
+		s_priceFeed = AggregatorV3Interface(priceFeedAddres);
 	}
 
 	function fund() public payable {
 		//* en el caso de que falle el require, todo cambio realizado previamente será revertido
 		require(
-			msg.value.getConversionRate() >= MINIMUM_USD,
+			msg.value.getConversionRate(s_priceFeed) >= MINIMUM_USD,
 			"Didn't send enough!"
 		); //? 1ETH = 1e18wei
-		funders.push(msg.sender);
-		addressToAmountFunded[msg.sender] = msg.value;
+		s_funders.push(msg.sender);
+		s_addressToAmountFunded[msg.sender] = msg.value;
 	}
 
 	function withdraw() public onlyOwner {
 		for (
 			uint256 funderIndex = 0;
-			funderIndex < funders.length;
+			funderIndex < s_funders.length;
 			funderIndex++
 		) {
-			address funder = funders[funderIndex];
-			addressToAmountFunded[funder] = 0;
+			address funder = s_funders[funderIndex];
+			s_addressToAmountFunded[funder] = 0;
 		}
 
 		//! esto resetea el tamaño del array a 0
-		funders = new address[](0);
+		s_funders = new address[](0);
 
 		//! tres modos de transferir fondos / retirar a una dirección
 		//? transfer: 2300 gas, throws error
@@ -62,12 +64,28 @@ contract FundMe {
 		require(callSuccess, "Call failed");
 	}
 
+	function cheaperWithdraw() public payable onlyOwner {
+		address[] memory funders = s_funders;
+		//* mappings no pueden ser memory
+		for (
+			uint256 funderIndex = 0;
+			funderIndex < funders.length;
+			funderIndex++
+		) {
+			address funder = funders[funderIndex];
+			s_addressToAmountFunded[funder] = 0;
+		}
+		s_funders = new address[](0);
+		(bool success, ) = i_owner.call{value: address(this).balance}("");
+		require(success);
+	}
+
 	//! MODIFICADOR
 	modifier onlyOwner() {
 		//* comprobamos si quien lo solicita es el propietario
 		//require(msg.sender == i_owner, "Sender is not ownder!");
 		if (msg.sender != i_owner) {
-			revert NotOwner();
+			revert FundMe__NotOwner();
 		}
 		_; //* la barra baja (underscore) representa hacer el resto de código
 		//? si se pone primero la barra baja hacer primero el código y luego el modificador
@@ -83,5 +101,25 @@ contract FundMe {
 	//! fallback
 	fallback() external payable {
 		fund();
+	}
+
+	function getOwner() public view returns (address) {
+		return i_owner;
+	}
+
+	function getFunder(uint256 index) public view returns (address) {
+		return s_funders[index];
+	}
+
+	function getAddressToAmountFunded(address funder)
+		public
+		view
+		returns (uint256)
+	{
+		return s_addressToAmountFunded[funder];
+	}
+
+	function getPriceFeed() public view returns (AggregatorV3Interface) {
+		return s_priceFeed;
 	}
 }
