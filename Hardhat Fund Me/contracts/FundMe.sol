@@ -30,8 +30,8 @@ contract FundMe {
 			msg.value.getConversionRate(s_priceFeed) >= MINIMUM_USD,
 			"Didn't send enough!"
 		); //? 1ETH = 1e18wei
+		s_addressToAmountFunded[msg.sender] += msg.value;
 		s_funders.push(msg.sender);
-		s_addressToAmountFunded[msg.sender] = msg.value;
 	}
 
 	function withdraw() public onlyOwner {
